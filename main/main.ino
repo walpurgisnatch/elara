@@ -1,29 +1,80 @@
-#include <EEPROM.h>
-#include <SoftwareSerial.h>
-#include <LiquidCrystal_I2C.h>
-#include <string.h>
+#include "main.h"
 
-#define water_time 300000
-#define light_time 600000
-#define water_pin 3
-#define light_pin 2
-#define INPUT_SIZE 10
+void set_menu() {
+  mainMenu.child = &waterItem;
+  lightItem.next = &waterItem;
+  waterItem.next = &lightItem;
+  
+  waterItem.prev = &lightItem;
 
+  waterItem.child = &waterPeriod;
+  lightItem.child = &lightPeriod;
+}
 
-long water_period = 15000000;
-long light_period = 10000000;
+// Функция отображения текущего пункта меню
+void displayMenu() {
+  if (!(current->child)) return;
+    
+  lcd.clear();
+    MenuItem *item = current->child;
+    
+    lcd.setCursor(0, 0);
+    lcd.print(item->name);
+    item = item->next;
+    
+    lcd.setCursor(0, 1);
+    lcd.print(item->name);
+}
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+void navigateUp(MenuItem **current) {
+  if ((*current)->prev)
+    *current = (*current)->prev;
+}
 
-SoftwareSerial BTSerial(10, 11);
+void navigateDown(MenuItem **current) {
+  if ((*current)->next)
+    *current = (*current)->next;
+}
 
-long main_timer, light_timer, water_timer = 0;
-boolean light_state = false;
-boolean water_state = false;
+void selectItem(MenuItem **current) {
+  if ((*current)->child)
+    *current = (*current)->child;
+}
+
+void pin_a() {
+  volatile byte value = 0;
+  cli();
+  value = PIND & 0xC;
+  if(value == B00001100 && a_flag) {
+    navigateDown(&current);
+    b_flag = 0;
+    a_flag = 0;
+  }
+  else if (value == B00000100) b_flag = 1;
+  sei();
+}
+
+void pin_b() {
+  volatile byte value = 0;
+  cli();
+  value = PIND & 0xC;
+  if (value == B00001100 && b_flag) {
+    navigateUp(&current);
+    b_flag = 0;
+    a_flag = 0;
+  }
+  else if (value == B00001000) a_flag = 1;
+  sei();
+}
 
 void setup() {
   Serial.begin(9600);
   BTSerial.begin(9600);
+
+  pinMode(MENU_KNOB_A, INPUT_PULLUP);
+  pinMode(MENU_KNOB_B, INPUT_PULLUP);
+  attachInterrupt(0, pin_a, RISING);
+  attachInterrupt(1, pin_b, RISING);
   
   pinMode(water_pin, OUTPUT);
   pinMode(light_pin, OUTPUT);
@@ -100,29 +151,9 @@ void turn_water() {
 void loop() {
   main_timer++;
 
-  while (BTSerial.available()) {
-    Serial.write(BTSerial.read());
-    char c = 0;
-    int v = 0;
-    char input[INPUT_SIZE + 1];
-    byte size = BTSerial.readBytes(input, INPUT_SIZE);
-    input[size] = 0;
-    
-    char* pch = strtok(input, " ");
-    c = pch[0];
-    pch = strtok(NULL, " ");
-    v = atol(pch);
-
-    switch (c) {
-    case 'w':
-      water_period = v * 100000;
-      break;
-    case 'l':
-      light_period = v * 100000;
-      break;
-    }
-    refresh_screen();
-  }
+  /* while (BTSerial.available()) { */
+  /*   bluetooth_read(); */
+  /* } */
       
   if (!light_state) {
     if (is_it_time(light_timer, light_period)) {
@@ -147,4 +178,28 @@ void loop() {
       refresh_screen();
     }
   }
+}
+
+void bluetooth_read() {
+  Serial.write(BTSerial.read());
+    char c = 0;
+    int v = 0;
+    char input[INPUT_SIZE + 1];
+    byte size = BTSerial.readBytes(input, INPUT_SIZE);
+    input[size] = 0;
+    
+    char* pch = strtok(input, " ");
+    c = pch[0];
+    pch = strtok(NULL, " ");
+    v = atol(pch);
+
+    switch (c) {
+    case 'w':
+      water_period = v * 100000;
+      break;
+    case 'l':
+      light_period = v * 100000;
+      break;
+    }
+    refresh_screen();
 }
