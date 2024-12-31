@@ -1,6 +1,14 @@
 #include "main.h"
 
-void set_menu() {
+long main_timer, light_timer, water_timer = 0;
+boolean light_state = false;
+boolean water_state = false;
+bool button_pressed = false;
+bool setting_selected = false;
+
+MenuItem *current = &waterItem;
+
+void setup_menu() {
   mainMenu.child = &waterItem;
   lightItem.next = &waterItem;
   waterItem.next = &lightItem;
@@ -9,77 +17,120 @@ void set_menu() {
 
   waterItem.child = &waterPeriod;
   lightItem.child = &lightPeriod;
+
+  waterPeriod.next = &waterAmount;
+  waterAmount.next = &backFromWater;
+  backFromWater.next = &waterPeriod;
+
+  lightPeriod.next = &lightTime;
+  lightTime.next = &backFromLight;
+  backFromLight.next = &lightPeriod;
+
+  lightPeriod.prev = &backFromLight;
+  waterPeriod.prev = &backFromWater;
 }
 
-// Функция отображения текущего пункта меню
-void displayMenu() {
-  if (!(current->child)) return;
-    
+void display_menu() {    
   lcd.clear();
-    MenuItem *item = current->child;
+
+  MenuItem *item = current;
+  
+  lcd.setCursor(0, 0);
+  lcd.print("> ");
+  lcd.print(item->name);
+  if (item->setting) {
+    lcd.print(" ");
+    lcd.print(*item->setting);
+  }
+  item = item->next;
     
-    lcd.setCursor(0, 0);
-    lcd.print(item->name);
-    item = item->next;
-    
-    lcd.setCursor(0, 1);
-    lcd.print(item->name);
+  lcd.setCursor(2, 1);
+  lcd.print(item->name);
+  if (item->setting) {
+    lcd.print(" ");
+    lcd.print(*item->setting);
+  }
 }
 
-void navigateUp(MenuItem **current) {
-  if ((*current)->prev)
+void navigate_up(MenuItem **current) {
+  if ((*current)->prev) {
     *current = (*current)->prev;
+    display_menu();
+  }
 }
 
-void navigateDown(MenuItem **current) {
-  if ((*current)->next)
+void navigate_down(MenuItem **current) {
+  if ((*current)->next) {
     *current = (*current)->next;
+    display_menu();
+  }
 }
 
-void selectItem(MenuItem **current) {
-  if ((*current)->child)
+void select_item(MenuItem **current) {
+  if ((*current)->child) {
     *current = (*current)->child;
+    display_menu();
+  } else if ((*current)->setting && !setting_selected) {
+    setting_selected = true;
+  } else if ((*current)->setting && setting_selected) {
+    setting_selected = false;
+  }
 }
 
 void pin_a() {
   volatile byte value = 0;
+  bool changed = false;
   cli();
   value = PIND & 0xC;
   if(value == B00001100 && a_flag) {
-    navigateDown(&current);
+    changed = true;
     b_flag = 0;
     a_flag = 0;
   }
   else if (value == B00000100) b_flag = 1;
   sei();
+  if (changed && !setting_selected) {
+    navigate_down(&current);
+  } else if (changed && setting_selected) {
+    *(current->setting) += 10;
+    display_menu();
+  }
 }
 
 void pin_b() {
   volatile byte value = 0;
+  bool changed = false;
   cli();
   value = PIND & 0xC;
   if (value == B00001100 && b_flag) {
-    navigateUp(&current);
+    changed = true;
     b_flag = 0;
     a_flag = 0;
   }
-  else if (value == B00001000) a_flag = 1;
+  else if (value == B00001100) a_flag = 1;
   sei();
+  if (changed && !setting_selected) {
+    navigate_up(&current);
+  } else if (changed && setting_selected) {
+    *(current->setting) -= 10;
+    display_menu();
+  }
 }
 
 void setup() {
   Serial.begin(9600);
   BTSerial.begin(9600);
-
-  pinMode(MENU_KNOB_A, INPUT_PULLUP);
-  pinMode(MENU_KNOB_B, INPUT_PULLUP);
-  attachInterrupt(0, pin_a, RISING);
-  attachInterrupt(1, pin_b, RISING);
+  setup_menu();
   
   pinMode(water_pin, OUTPUT);
   pinMode(light_pin, OUTPUT);
   digitalWrite(light_pin, 1);
   digitalWrite(water_pin, 1);
+  
+  pinMode(MENU_KNOB_A, INPUT_PULLUP);
+  pinMode(MENU_KNOB_B, INPUT_PULLUP);
+  attachInterrupt(0, pin_a, RISING);
+  attachInterrupt(1, pin_b, RISING);
 
   lcd.init();
   lcd.backlight();
@@ -88,7 +139,7 @@ void setup() {
   lcd.setCursor(0, 0);
   lcd.print("Ready");
   delay(1000);
-  write_vars();
+  display_menu();
 }
 
 void write_vars() {
@@ -150,34 +201,43 @@ void turn_water() {
 
 void loop() {
   main_timer++;
+  bool btn_state = !digitalRead(MENU_BUTTON);
+
+  if (btn_state && !button_pressed) {
+    button_pressed = true;
+  }
+  if (!btn_state && button_pressed) {
+    button_pressed = false;
+    select_item(&current);
+  }
 
   /* while (BTSerial.available()) { */
   /*   bluetooth_read(); */
   /* } */
       
-  if (!light_state) {
-    if (is_it_time(light_timer, light_period)) {
-      turn_light();
-      refresh_screen();
-    }
-  } else {
-    if (is_it_time(light_timer, light_time)) {
-      turn_light();
-      refresh_screen();
-    }
-  }
+  /* if (!light_state) { */
+  /*   if (is_it_time(light_timer, light_period)) { */
+  /*     turn_light(); */
+  /*     refresh_screen(); */
+  /*   } */
+  /* } else { */
+  /*   if (is_it_time(light_timer, light_time)) { */
+  /*     turn_light(); */
+  /*     refresh_screen(); */
+  /*   } */
+  /* } */
   
-  if (!water_state) {
-    if (is_it_time(water_timer, water_period)) {
-      turn_water();
-      refresh_screen();
-    }
-  } else {
-    if (is_it_time(water_timer, water_time)) {
-      turn_water();
-      refresh_screen();
-    }
-  }
+  /* if (!water_state) { */
+  /*   if (is_it_time(water_timer, water_period)) { */
+  /*     turn_water(); */
+  /*     refresh_screen(); */
+  /*   } */
+  /* } else { */
+  /*   if (is_it_time(water_timer, water_time)) { */
+  /*     turn_water(); */
+  /*     refresh_screen(); */
+  /*   } */
+  /* } */
 }
 
 void bluetooth_read() {
