@@ -82,17 +82,16 @@ void pin_a() {
   bool changed = false;
   cli();
   value = PIND & 0xC;
-  if(value == B00001100 && a_flag) {
+  if(value == 8 && a_flag) {
     changed = true;
     b_flag = 0;
     a_flag = 0;
-  }
-  else if (value == B00000100) b_flag = 1;
+  } else if (value == 12) b_flag = 1;
   sei();
   if (changed && !setting_selected) {
     navigate_down(&current);
   } else if (changed && setting_selected) {
-    *(current->setting) += 10;
+    *(current->setting) -= 10;
     display_menu();
   }
 }
@@ -102,17 +101,16 @@ void pin_b() {
   bool changed = false;
   cli();
   value = PIND & 0xC;
-  if (value == B00001100 && b_flag) {
+  if (value == 12 && b_flag) {
     changed = true;
     b_flag = 0;
     a_flag = 0;
-  }
-  else if (value == B00001100) a_flag = 1;
+  } else if (value == 8) a_flag = 1;
   sei();
   if (changed && !setting_selected) {
     navigate_up(&current);
   } else if (changed && setting_selected) {
-    *(current->setting) -= 10;
+    *(current->setting) += 10;
     display_menu();
   }
 }
@@ -131,6 +129,8 @@ void setup() {
   pinMode(MENU_KNOB_B, INPUT_PULLUP);
   attachInterrupt(0, pin_a, RISING);
   attachInterrupt(1, pin_b, RISING);
+
+  pinMode(MENU_BUTTON, INPUT_PULLUP);
 
   lcd.init();
   lcd.backlight();
@@ -210,33 +210,33 @@ void loop() {
     button_pressed = false;
     select_item(&current);
   }
+      
+  if (!light_state) {
+    if (is_it_time(light_timer, light_period)) {
+      turn_light();
+      refresh_screen();
+    }
+  } else {
+    if (is_it_time(light_timer, light_time)) {
+      turn_light();
+      refresh_screen();
+    }
+  }
+  
+  if (!water_state) {
+    if (is_it_time(water_timer, water_period)) {
+      turn_water();
+      refresh_screen();
+    }
+  } else {
+    if (is_it_time(water_timer, water_time)) {
+      turn_water();
+      refresh_screen();
+    }
+  }
 
   /* while (BTSerial.available()) { */
   /*   bluetooth_read(); */
-  /* } */
-      
-  /* if (!light_state) { */
-  /*   if (is_it_time(light_timer, light_period)) { */
-  /*     turn_light(); */
-  /*     refresh_screen(); */
-  /*   } */
-  /* } else { */
-  /*   if (is_it_time(light_timer, light_time)) { */
-  /*     turn_light(); */
-  /*     refresh_screen(); */
-  /*   } */
-  /* } */
-  
-  /* if (!water_state) { */
-  /*   if (is_it_time(water_timer, water_period)) { */
-  /*     turn_water(); */
-  /*     refresh_screen(); */
-  /*   } */
-  /* } else { */
-  /*   if (is_it_time(water_timer, water_time)) { */
-  /*     turn_water(); */
-  /*     refresh_screen(); */
-  /*   } */
   /* } */
 }
 

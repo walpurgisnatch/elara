@@ -3,12 +3,12 @@
 #include <SoftwareSerial.h>
 #include <LiquidCrystal_I2C.h>
 
-#define water_pin 4
-#define light_pin 5
+#define water_pin 5
+#define light_pin 6
 #define INPUT_SIZE 10
 
-#define MENU_KNOB_A 2
-#define MENU_KNOB_B 3
+#define MENU_KNOB_A 3
+#define MENU_KNOB_B 2
 #define MENU_BUTTON 4
 
 typedef struct MenuItem {
