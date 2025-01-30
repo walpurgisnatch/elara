@@ -1,12 +1,36 @@
 #include "main.h"
 
-long main_timer, light_timer, water_timer = 0;
-boolean light_state = false;
-boolean water_state = false;
+unsigned long last_interrupt_time = 0;
+
+unsigned long main_timer, light_timer, water_timer = 0;
+bool light_state = false;
+bool water_state = false;
 bool button_pressed = false;
 bool setting_selected = false;
 
 MenuItem *current = &waterItem;
+
+String convert_millis(long millis) {
+  long days = millis / (DAY);
+  millis %= (DAY);
+
+  long hours = millis / (HOUR);
+  millis %= (HOUR);
+
+  long minutes = millis / (MINUTE);
+  millis %= (MINUTE);
+
+  long seconds = millis / SECOND;
+
+  // Формируем строку с результатом
+  String result = "";
+  if (days > 0) result += String(days) + "d";
+  if (hours > 0) result += String(hours) + "h";
+  if (minutes > 0) result += String(minutes) + "m";
+  if (seconds > 0) result += String(seconds) + "s";
+
+  return result;
+}
 
 void setup_menu() {
   mainMenu.child = &waterItem;
@@ -30,7 +54,7 @@ void setup_menu() {
   waterPeriod.prev = &backFromWater;
 }
 
-void display_menu() {    
+void display_menu() {
   lcd.clear();
 
   MenuItem *item = current;
@@ -40,7 +64,7 @@ void display_menu() {
   lcd.print(item->name);
   if (item->setting) {
     lcd.print(" ");
-    lcd.print(*item->setting);
+    lcd.print(convert_millis(*item->setting));
   }
   item = item->next;
     
@@ -48,7 +72,7 @@ void display_menu() {
   lcd.print(item->name);
   if (item->setting) {
     lcd.print(" ");
-    lcd.print(*item->setting);
+    lcd.print(convert_millis(*item->setting));
   }
 }
 
@@ -60,6 +84,7 @@ void navigate_up(MenuItem **current) {
 }
 
 void navigate_down(MenuItem **current) {
+  Serial.println("down");
   if ((*current)->next) {
     *current = (*current)->next;
     display_menu();
@@ -77,21 +102,48 @@ void select_item(MenuItem **current) {
   }
 }
 
-void pin_a() {
+void value_up() {
+  if (*(current->setting) > 3600000) {
+    *(current->setting) += 2 * HOUR;
+  } else {
+    *(current->setting) += 2 * SECOND;
+  }
+}
+
+void value_down() {
+  if (*(current->setting) > 3600000) {
+    *(current->setting) -= 2 * HOUR;
+  } else {
+    *(current->setting) -= 2 * SECOND;
+  }
+}
+
+void nullify_flags() {
+  b_flag = 0;
+  a_flag = 0;
+}
+
+void pin_a() {  
   volatile byte value = 0;
   bool changed = false;
+  
+  if (main_timer - last_interrupt_time < DEBOUNCE) {
+    return;
+  }
+  last_interrupt_time = main_timer;
+  
   cli();
   value = PIND & 0xC;
   if(value == 8 && a_flag) {
     changed = true;
-    b_flag = 0;
-    a_flag = 0;
+    nullify_flags();
   } else if (value == 12) b_flag = 1;
   sei();
+
   if (changed && !setting_selected) {
     navigate_down(&current);
   } else if (changed && setting_selected) {
-    *(current->setting) -= 10;
+    value_down();
     display_menu();
   }
 }
@@ -99,18 +151,19 @@ void pin_a() {
 void pin_b() {
   volatile byte value = 0;
   bool changed = false;
+  
   cli();
   value = PIND & 0xC;
   if (value == 12 && b_flag) {
     changed = true;
-    b_flag = 0;
-    a_flag = 0;
+    nullify_flags();
   } else if (value == 8) a_flag = 1;
   sei();
+
   if (changed && !setting_selected) {
     navigate_up(&current);
   } else if (changed && setting_selected) {
-    *(current->setting) += 10;
+    value_up();
     display_menu();
   }
 }
@@ -142,43 +195,8 @@ void setup() {
   display_menu();
 }
 
-void write_vars() {
-  char water[16];
-  char light[16];
-  sprintf(water, "water %ds", water_period/100000);
-  sprintf(light, "light %ds", light_period/100000);
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(water);
-  lcd.setCursor(0, 1);
-  lcd.print(light);
-}
-
-void write_state() {
-  lcd.clear();
-  if (water_state) {
-    lcd.setCursor(0, 0);
-    lcd.print("watering is on");    
-  }
-  if (light_state) {
-    lcd.setCursor(0, 1);
-    lcd.print("light is on");
-  }
-}
-
-void refresh_screen() {
-  if (water_state || light_state)
-    write_state();
-  else
-    write_vars();
-}
-
 boolean is_it_time(long ctimer, long period) {
   return main_timer - ctimer > period;
-}
-
-int to_minute(int m) {
-  return m*60*1000;
 }
 
 void turn_light() {
@@ -214,24 +232,20 @@ void loop() {
   if (!light_state) {
     if (is_it_time(light_timer, light_period)) {
       turn_light();
-      refresh_screen();
     }
   } else {
     if (is_it_time(light_timer, light_time)) {
       turn_light();
-      refresh_screen();
     }
   }
   
   if (!water_state) {
     if (is_it_time(water_timer, water_period)) {
       turn_water();
-      refresh_screen();
     }
   } else {
     if (is_it_time(water_timer, water_time)) {
       turn_water();
-      refresh_screen();
     }
   }
 
@@ -261,5 +275,4 @@ void bluetooth_read() {
       light_period = v * 100000;
       break;
     }
-    refresh_screen();
 }
