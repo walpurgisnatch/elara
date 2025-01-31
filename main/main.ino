@@ -1,34 +1,189 @@
-#include <EEPROM.h>
-#include <SoftwareSerial.h>
-#include <LiquidCrystal_I2C.h>
-#include <string.h>
+#include "main.h"
 
-#define water_time 300000
-#define light_time 600000
-#define water_pin 3
-#define light_pin 2
-#define INPUT_SIZE 10
+unsigned long last_interrupt_time = 0;
 
+unsigned long main_timer, light_timer, water_timer = 0;
+bool light_state = false;
+bool water_state = false;
+bool button_pressed = false;
+bool setting_selected = false;
 
-long water_period = 15000000;
-long light_period = 10000000;
+MenuItem *current = &waterItem;
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+String convert_millis(long millis) {
+  long days = millis / (DAY);
+  millis %= (DAY);
 
-SoftwareSerial BTSerial(10, 11);
+  long hours = millis / (HOUR);
+  millis %= (HOUR);
 
-long main_timer, light_timer, water_timer = 0;
-boolean light_state = false;
-boolean water_state = false;
+  long minutes = millis / (MINUTE);
+  millis %= (MINUTE);
+
+  long seconds = millis / SECOND;
+
+  // Формируем строку с результатом
+  String result = "";
+  if (days > 0) result += String(days) + "d";
+  if (hours > 0) result += String(hours) + "h";
+  if (minutes > 0) result += String(minutes) + "m";
+  if (seconds > 0) result += String(seconds) + "s";
+
+  return result;
+}
+
+void setup_menu() {
+  mainMenu.child = &waterItem;
+  lightItem.next = &waterItem;
+  waterItem.next = &lightItem;
+  
+  waterItem.prev = &lightItem;
+
+  waterItem.child = &waterPeriod;
+  lightItem.child = &lightPeriod;
+
+  waterPeriod.next = &waterAmount;
+  waterAmount.next = &backFromWater;
+  backFromWater.next = &waterPeriod;
+
+  lightPeriod.next = &lightTime;
+  lightTime.next = &backFromLight;
+  backFromLight.next = &lightPeriod;
+
+  lightPeriod.prev = &backFromLight;
+  waterPeriod.prev = &backFromWater;
+}
+
+void display_menu() {
+  lcd.clear();
+
+  MenuItem *item = current;
+  
+  lcd.setCursor(0, 0);
+  lcd.print("> ");
+  lcd.print(item->name);
+  if (item->setting) {
+    lcd.print(" ");
+    lcd.print(convert_millis(*item->setting));
+  }
+  item = item->next;
+    
+  lcd.setCursor(2, 1);
+  lcd.print(item->name);
+  if (item->setting) {
+    lcd.print(" ");
+    lcd.print(convert_millis(*item->setting));
+  }
+}
+
+void navigate_up(MenuItem **current) {
+  if ((*current)->prev) {
+    *current = (*current)->prev;
+    display_menu();
+  }
+}
+
+void navigate_down(MenuItem **current) {
+  Serial.println("down");
+  if ((*current)->next) {
+    *current = (*current)->next;
+    display_menu();
+  }
+}
+
+void select_item(MenuItem **current) {
+  if ((*current)->child) {
+    *current = (*current)->child;
+    display_menu();
+  } else if ((*current)->setting && !setting_selected) {
+    setting_selected = true;
+  } else if ((*current)->setting && setting_selected) {
+    setting_selected = false;
+  }
+}
+
+void value_up() {
+  if (*(current->setting) > 3600000) {
+    *(current->setting) += 2 * HOUR;
+  } else {
+    *(current->setting) += 2 * SECOND;
+  }
+}
+
+void value_down() {
+  if (*(current->setting) > 3600000) {
+    *(current->setting) -= 2 * HOUR;
+  } else {
+    *(current->setting) -= 2 * SECOND;
+  }
+}
+
+void nullify_flags() {
+  b_flag = 0;
+  a_flag = 0;
+}
+
+void pin_a() {  
+  volatile byte value = 0;
+  bool changed = false;
+  
+  if (main_timer - last_interrupt_time < DEBOUNCE) {
+    return;
+  }
+  last_interrupt_time = main_timer;
+  
+  cli();
+  value = PIND & 0xC;
+  if(value == 8 && a_flag) {
+    changed = true;
+    nullify_flags();
+  } else if (value == 12) b_flag = 1;
+  sei();
+
+  if (changed && !setting_selected) {
+    navigate_down(&current);
+  } else if (changed && setting_selected) {
+    value_down();
+    display_menu();
+  }
+}
+
+void pin_b() {
+  volatile byte value = 0;
+  bool changed = false;
+  
+  cli();
+  value = PIND & 0xC;
+  if (value == 12 && b_flag) {
+    changed = true;
+    nullify_flags();
+  } else if (value == 8) a_flag = 1;
+  sei();
+
+  if (changed && !setting_selected) {
+    navigate_up(&current);
+  } else if (changed && setting_selected) {
+    value_up();
+    display_menu();
+  }
+}
 
 void setup() {
   Serial.begin(9600);
   BTSerial.begin(9600);
+  setup_menu();
   
   pinMode(water_pin, OUTPUT);
   pinMode(light_pin, OUTPUT);
   digitalWrite(light_pin, 1);
   digitalWrite(water_pin, 1);
+  
+  pinMode(MENU_KNOB_A, INPUT_PULLUP);
+  pinMode(MENU_KNOB_B, INPUT_PULLUP);
+  attachInterrupt(0, pin_a, RISING);
+  attachInterrupt(1, pin_b, RISING);
+
+  pinMode(MENU_BUTTON, INPUT_PULLUP);
 
   lcd.init();
   lcd.backlight();
@@ -37,46 +192,11 @@ void setup() {
   lcd.setCursor(0, 0);
   lcd.print("Ready");
   delay(1000);
-  write_vars();
-}
-
-void write_vars() {
-  char water[16];
-  char light[16];
-  sprintf(water, "water %ds", water_period/100000);
-  sprintf(light, "light %ds", light_period/100000);
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(water);
-  lcd.setCursor(0, 1);
-  lcd.print(light);
-}
-
-void write_state() {
-  lcd.clear();
-  if (water_state) {
-    lcd.setCursor(0, 0);
-    lcd.print("watering is on");    
-  }
-  if (light_state) {
-    lcd.setCursor(0, 1);
-    lcd.print("light is on");
-  }
-}
-
-void refresh_screen() {
-  if (water_state || light_state)
-    write_state();
-  else
-    write_vars();
+  display_menu();
 }
 
 boolean is_it_time(long ctimer, long period) {
   return main_timer - ctimer > period;
-}
-
-int to_minute(int m) {
-  return m*60*1000;
 }
 
 void turn_light() {
@@ -99,9 +219,43 @@ void turn_water() {
 
 void loop() {
   main_timer++;
+  bool btn_state = !digitalRead(MENU_BUTTON);
 
-  while (BTSerial.available()) {
-    Serial.write(BTSerial.read());
+  if (btn_state && !button_pressed) {
+    button_pressed = true;
+  }
+  if (!btn_state && button_pressed) {
+    button_pressed = false;
+    select_item(&current);
+  }
+      
+  if (!light_state) {
+    if (is_it_time(light_timer, light_period)) {
+      turn_light();
+    }
+  } else {
+    if (is_it_time(light_timer, light_time)) {
+      turn_light();
+    }
+  }
+  
+  if (!water_state) {
+    if (is_it_time(water_timer, water_period)) {
+      turn_water();
+    }
+  } else {
+    if (is_it_time(water_timer, water_time)) {
+      turn_water();
+    }
+  }
+
+  /* while (BTSerial.available()) { */
+  /*   bluetooth_read(); */
+  /* } */
+}
+
+void bluetooth_read() {
+  Serial.write(BTSerial.read());
     char c = 0;
     int v = 0;
     char input[INPUT_SIZE + 1];
@@ -121,30 +275,4 @@ void loop() {
       light_period = v * 100000;
       break;
     }
-    refresh_screen();
-  }
-      
-  if (!light_state) {
-    if (is_it_time(light_timer, light_period)) {
-      turn_light();
-      refresh_screen();
-    }
-  } else {
-    if (is_it_time(light_timer, light_time)) {
-      turn_light();
-      refresh_screen();
-    }
-  }
-  
-  if (!water_state) {
-    if (is_it_time(water_timer, water_period)) {
-      turn_water();
-      refresh_screen();
-    }
-  } else {
-    if (is_it_time(water_timer, water_time)) {
-      turn_water();
-      refresh_screen();
-    }
-  }
 }
