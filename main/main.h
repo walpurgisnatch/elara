@@ -18,6 +18,11 @@
 #define HOUR 3600000
 #define DAY 86400000
 
+typedef enum {
+    WATER,
+    LIGHT
+} DeviceType;
+
 typedef struct MenuItem {
     const char *name;
     struct MenuItem *parent;
@@ -27,11 +32,31 @@ typedef struct MenuItem {
     long *setting;
 } MenuItem;
 
+typedef struct Device {
+    struct MenuItem *parent_item;
+    struct MenuItem *period_item;
+    struct MenuItem *time_item;
+    struct MenuItem *back_item;
+    unsigned long timer;
+    long time;
+    long period;
+    bool state;
+} Device;
+
 volatile byte a_flag = 0;
 volatile byte b_flag = 0;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 SoftwareSerial BTSerial(10, 11);
+
+Device *water_devices = NULL;
+Device *light_devices = NULL;
+
+int devices_count = 3;
+Device *devices = NULL;
+
+int water_devices_count = 2;
+int light_devices_count = 1;
 
 long water_time = 20 * SECOND;
 long light_time = 6 * HOUR;
@@ -39,16 +64,6 @@ long water_period = 18 * HOUR;
 long light_period = 18 * HOUR;
 
 MenuItem mainMenu = {"Main manu", NULL, NULL, NULL, NULL, NULL};
-MenuItem waterItem = {"Water", &mainMenu, NULL, NULL, NULL, NULL};
-MenuItem lightItem = {"Light", &mainMenu, NULL, &waterItem, NULL, NULL};
-
-MenuItem waterPeriod = {"Period", &waterItem, NULL, NULL, NULL, &water_period};
-MenuItem waterAmount = {"Time", &waterItem, NULL, &waterPeriod, NULL, &water_time};
-MenuItem backFromWater = {"Back", &lightItem, NULL, &waterAmount, &waterItem, NULL};
-
-MenuItem lightPeriod = {"Period", &lightItem, NULL, NULL, NULL, &light_period};
-MenuItem lightTime = {"Time", &lightItem, NULL, &lightPeriod, NULL, &light_time};
-MenuItem backFromLight = {"Back", &lightItem, NULL, &lightTime, &lightItem, NULL};
 
 void display_menu();
 void navigate_up(MenuItem **current);

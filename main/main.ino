@@ -8,7 +8,7 @@ bool water_state = false;
 bool button_pressed = false;
 bool setting_selected = false;
 
-MenuItem *current = &waterItem;
+MenuItem *current = NULL;
 
 String convert_millis(long millis) {
   long days = millis / (DAY);
@@ -32,26 +32,91 @@ String convert_millis(long millis) {
   return result;
 }
 
-void setup_menu() {
-  mainMenu.child = &waterItem;
-  lightItem.next = &waterItem;
-  waterItem.next = &lightItem;
+void create_menu() {
+  devices = (Device *)malloc(devices_count * sizeof(Device));
   
-  waterItem.prev = &lightItem;
+  if (!devices) {
+    Serial.println("Memory allocation for devices failed");
+  }
+  
+  for (int i = 0; i < devices_count; i++) {
+    Device *device = &devices[i];
+    Device *previous = NULL;
+    if (i > 0) {
+      previous = &devices[i-1];
+    }
 
-  waterItem.child = &waterPeriod;
-  lightItem.child = &lightPeriod;
+    device->parent_item = (MenuItem *)malloc(sizeof(MenuItem));
+    device->period_item = (MenuItem *)malloc(sizeof(MenuItem));
+    device->time_item = (MenuItem *)malloc(sizeof(MenuItem));
+    device->back_item = (MenuItem *)malloc(sizeof(MenuItem));
 
-  waterPeriod.next = &waterAmount;
-  waterAmount.next = &backFromWater;
-  backFromWater.next = &waterPeriod;
+    if (!device->parent_item || !device->period_item || !device->time_item || !device->back_item) {
+      Serial.println("Memory allocation for menu items failed");
+    }
 
-  lightPeriod.next = &lightTime;
-  lightTime.next = &backFromLight;
-  backFromLight.next = &lightPeriod;
+    // Заполняем parent_item
+    char nameBuffer[16];
+    snprintf(nameBuffer, 16, "Device %d", i);
+    device->parent_item->name = strdup(nameBuffer);
 
-  lightPeriod.prev = &backFromLight;
-  waterPeriod.prev = &backFromWater;
+    if (!device->parent_item->name) {
+      Serial.println("Memory allocation for name failed");
+    }
+    
+    device->parent_item->parent = &mainMenu;
+    device->parent_item->next = NULL;
+    device->parent_item->prev = NULL;
+    device->parent_item->child = device->period_item;
+    device->parent_item->setting = NULL;
+
+    // Заполняем period_item
+    device->period_item->name = "Period";
+    device->period_item->parent = device->parent_item;
+    device->period_item->next = device->time_item;
+    device->period_item->prev = device->back_item;
+    device->period_item->child = NULL;
+    device->period_item->setting = &device->period;
+
+    // Заполняем time_item
+    device->time_item->name = "Time";
+    device->time_item->parent = device->parent_item;
+    device->time_item->next = device->back_item;
+    device->time_item->prev = device->period_item;
+    device->time_item->child = NULL;
+    device->time_item->setting = &device->time;
+
+    // Заполняем back_item
+    device->back_item->name = "Back";
+    device->back_item->parent = device->parent_item;
+    device->back_item->next = device->period_item;
+    device->back_item->prev = device->time_item;
+    device->back_item->child = device->parent_item;
+    device->back_item->setting = NULL;
+    
+    device->time = 20 * SECOND;
+    device->period = 18 * HOUR;
+    device->timer = 0;
+    device->state = false;
+
+    if (devices_count > 1) {
+      if (previous) {
+        previous->parent_item->next = device->parent_item;
+        device->parent_item->prev = previous->parent_item;
+      }
+      if (i == devices_count-1) {
+        previous = &devices[0];
+        previous->parent_item->prev = device->parent_item;
+        device->parent_item->next = previous->parent_item;
+      }
+    }
+  }
+}
+
+void setup_menu() {
+  create_menu();
+  current = devices[0].parent_item;
+  mainMenu.child = devices[0].parent_item;
 }
 
 void display_menu() {
@@ -66,13 +131,15 @@ void display_menu() {
     lcd.print(" ");
     lcd.print(convert_millis(*item->setting));
   }
-  item = item->next;
+  if (item->next) {
+    item = item->next;
     
-  lcd.setCursor(2, 1);
-  lcd.print(item->name);
-  if (item->setting) {
-    lcd.print(" ");
-    lcd.print(convert_millis(*item->setting));
+    lcd.setCursor(2, 1);
+    lcd.print(item->name);
+    if (item->setting) {
+      lcd.print(" ");
+      lcd.print(convert_millis(*item->setting));
+    }
   }
 }
 
@@ -84,7 +151,6 @@ void navigate_up(MenuItem **current) {
 }
 
 void navigate_down(MenuItem **current) {
-  Serial.println("down");
   if ((*current)->next) {
     *current = (*current)->next;
     display_menu();
