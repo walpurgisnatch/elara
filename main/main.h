@@ -5,8 +5,7 @@
 
 #define DEBOUNCE 5
 
-#define water_pin 5
-#define light_pin 6
+#define DEVICE_FIRST_PIN 5
 #define INPUT_SIZE 10
 
 #define MENU_KNOB_A 3
@@ -45,25 +44,18 @@ typedef struct Device {
 
 volatile byte a_flag = 0;
 volatile byte b_flag = 0;
+bool button_pressed = false;
+bool setting_selected = false;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 SoftwareSerial BTSerial(10, 11);
 
-Device *water_devices = NULL;
-Device *light_devices = NULL;
-
-int devices_count = 3;
 Device *devices = NULL;
 
-int water_devices_count = 2;
-int light_devices_count = 1;
-
-long water_time = 20 * SECOND;
-long light_time = 6 * HOUR;
-long water_period = 18 * HOUR;
-long light_period = 18 * HOUR;
-
 MenuItem mainMenu = {"Main manu", NULL, NULL, NULL, NULL, NULL};
+MenuItem *current = NULL;
+
+unsigned long main_timer, last_interrupt_time = 0;
 
 void display_menu();
 void navigate_up(MenuItem **current);

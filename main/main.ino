@@ -1,14 +1,6 @@
 #include "main.h"
 
-unsigned long last_interrupt_time = 0;
-
-unsigned long main_timer, light_timer, water_timer = 0;
-bool light_state = false;
-bool water_state = false;
-bool button_pressed = false;
-bool setting_selected = false;
-
-MenuItem *current = NULL;
+int devices_count = 3;
 
 String convert_millis(long millis) {
   long days = millis / (DAY);
@@ -169,18 +161,34 @@ void select_item(MenuItem **current) {
 }
 
 void value_up() {
-  if (*(current->setting) > 3600000) {
-    *(current->setting) += 2 * HOUR;
+  if (*(current->setting) > 7200000) { // 2h
+    *(current->setting) += 1 * HOUR;
+  } else if (*(current->setting) > 3600000) { //1h
+    *(current->setting) += 10 * MINUTE;
+  } else if (*(current->setting) > 1800000) { //30m
+    *(current->setting) += 5 * MINUTE;
+  } else if (*(current->setting) > 600000) { //10m
+    *(current->setting) += 1 * MINUTE;
+  } else if (*(current->setting) > 60000) { //1m
+    *(current->setting) += 30 * SECOND;
   } else {
-    *(current->setting) += 2 * SECOND;
+    *(current->setting) += 2.5 * SECOND;
   }
 }
 
 void value_down() {
-  if (*(current->setting) > 3600000) {
-    *(current->setting) -= 2 * HOUR;
+  if (*(current->setting) > 7200000) { // 2h
+    *(current->setting) -= 1 * HOUR;
+  } else if (*(current->setting) > 3600000) { //1h
+    *(current->setting) -= 10 * MINUTE;
+  } else if (*(current->setting) > 1800000) { //30m
+    *(current->setting) -= 5 * MINUTE;
+  } else if (*(current->setting) > 600000) { //10m
+    *(current->setting) -= 1 * MINUTE;
+  } else if (*(current->setting) > 60000) { //1m
+    *(current->setting) -= 30 * SECOND;
   } else {
-    *(current->setting) -= 2 * SECOND;
+    *(current->setting) -= 2.5 * SECOND;
   }
 }
 
@@ -234,23 +242,7 @@ void pin_b() {
   }
 }
 
-void setup() {
-  Serial.begin(9600);
-  BTSerial.begin(9600);
-  setup_menu();
-  
-  pinMode(water_pin, OUTPUT);
-  pinMode(light_pin, OUTPUT);
-  digitalWrite(light_pin, 1);
-  digitalWrite(water_pin, 1);
-  
-  pinMode(MENU_KNOB_A, INPUT_PULLUP);
-  pinMode(MENU_KNOB_B, INPUT_PULLUP);
-  attachInterrupt(0, pin_a, RISING);
-  attachInterrupt(1, pin_b, RISING);
-
-  pinMode(MENU_BUTTON, INPUT_PULLUP);
-
+void LCD_setup() {
   lcd.init();
   lcd.backlight();
   lcd.clear();
@@ -261,30 +253,40 @@ void setup() {
   display_menu();
 }
 
+void setup() {
+  Serial.begin(9600);
+  BTSerial.begin(9600);
+  setup_menu();
+
+  for (int i = DEVICE_FIRST_PIN; i < DEVICE_FIRST_PIN + devices_count; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, 1);
+  }
+  
+  pinMode(MENU_BUTTON, INPUT_PULLUP);
+  pinMode(MENU_KNOB_A, INPUT_PULLUP);
+  pinMode(MENU_KNOB_B, INPUT_PULLUP);
+  attachInterrupt(0, pin_a, RISING);
+  attachInterrupt(1, pin_b, RISING);
+
+  LCD_setup();
+}
+
 boolean is_it_time(long ctimer, long period) {
   return main_timer - ctimer > period;
 }
 
-void turn_light() {
-  if (light_state)
-    digitalWrite(light_pin, 1);
+void turn_device(Device *device, int pin) {
+  if (device->state) 
+    digitalWrite(pin, 1);
   else
-    digitalWrite(light_pin, 0);
-  light_timer = main_timer;
-  light_state = !light_state;
-}
-
-void turn_water() {
-  if (water_state)
-    digitalWrite(water_pin, 1);
-  else
-    digitalWrite(water_pin, 0);
-  water_timer = main_timer;
-  water_state = !water_state;
+    digitalWrite(pin, 0);
+  device->timer = main_timer;
+  device->state = !device->state;
 }
 
 void loop() {
-  main_timer++;
+  main_timer = millis();
   bool btn_state = !digitalRead(MENU_BUTTON);
 
   if (btn_state && !button_pressed) {
@@ -294,51 +296,16 @@ void loop() {
     button_pressed = false;
     select_item(&current);
   }
-      
-  if (!light_state) {
-    if (is_it_time(light_timer, light_period)) {
-      turn_light();
-    }
-  } else {
-    if (is_it_time(light_timer, light_time)) {
-      turn_light();
+
+  for (int p = DEVICE_FIRST_PIN, d = 0;
+       p < DEVICE_FIRST_PIN + devices_count, d < devices_count;
+       p++, d++) {
+    if (!devices[d].state) {
+      if (is_it_time(devices[d].timer, devices[d].period))
+        turn_device(&devices[d], p);
+    } else {
+      if (is_it_time(devices[d].timer, devices[d].time))
+        turn_device(&devices[d], p);
     }
   }
-  
-  if (!water_state) {
-    if (is_it_time(water_timer, water_period)) {
-      turn_water();
-    }
-  } else {
-    if (is_it_time(water_timer, water_time)) {
-      turn_water();
-    }
-  }
-
-  /* while (BTSerial.available()) { */
-  /*   bluetooth_read(); */
-  /* } */
-}
-
-void bluetooth_read() {
-  Serial.write(BTSerial.read());
-    char c = 0;
-    int v = 0;
-    char input[INPUT_SIZE + 1];
-    byte size = BTSerial.readBytes(input, INPUT_SIZE);
-    input[size] = 0;
-    
-    char* pch = strtok(input, " ");
-    c = pch[0];
-    pch = strtok(NULL, " ");
-    v = atol(pch);
-
-    switch (c) {
-    case 'w':
-      water_period = v * 100000;
-      break;
-    case 'l':
-      light_period = v * 100000;
-      break;
-    }
 }
