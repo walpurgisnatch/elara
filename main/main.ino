@@ -1,14 +1,42 @@
 #include "main.h"
 
-unsigned long last_interrupt_time = 0;
+int devices_count = 3;
 
-unsigned long main_timer, light_timer, water_timer = 0;
-bool light_state = false;
-bool water_state = false;
-bool button_pressed = false;
-bool setting_selected = false;
+void save_to_EEPROM() {
+  int addr = 0;
 
-MenuItem *current = &waterItem;
+  int magic = EEPROM_MAGIC_NUMBER;
+  EEPROM.put(addr, magic);
+  addr += sizeof(magic);
+  
+  EEPROM.put(addr, main_timer);
+  addr += sizeof(main_timer);
+
+  for (int i = 0; i < devices_count; i++) {
+    EEPROM.put(addr, devices[i]);
+    addr += sizeof(Device);
+  }
+}
+
+void load_from_EEPROM() {
+  int addr = 0;
+  int magic;
+
+  EEPROM.get(addr, magic);
+  if (magic != EEPROM_MAGIC_NUMBER)
+    return;
+  addr += sizeof(magic);
+  
+  EEPROM.get(addr, main_timer);
+  addr += sizeof(main_timer);
+  
+  memset(devices, 0, sizeof(Device) * devices_count);
+  
+  for (int i = 0; i < devices_count; i++) {
+    EEPROM.get(addr, devices[i]);
+    addr += sizeof(Device);
+  }
+}
 
 String convert_millis(long millis) {
   long days = millis / (DAY);
@@ -32,26 +60,85 @@ String convert_millis(long millis) {
   return result;
 }
 
-void setup_menu() {
-  mainMenu.child = &waterItem;
-  lightItem.next = &waterItem;
-  waterItem.next = &lightItem;
+void create_devices() {
+  devices = (Device *)malloc(devices_count * sizeof(Device));
   
-  waterItem.prev = &lightItem;
+  if (!devices) {
+    Serial.println("Memory allocation for devices failed");
+  }
+  
+  for (int i = 0; i < devices_count; i++) {
+    Device *device = &devices[i];
+    Device *previous = NULL;
+    if (i > 0) {
+      previous = &devices[i-1];
+    }
 
-  waterItem.child = &waterPeriod;
-  lightItem.child = &lightPeriod;
+    device->parent_item = (MenuItem *)malloc(sizeof(MenuItem));
+    device->period_item = (MenuItem *)malloc(sizeof(MenuItem));
+    device->time_item = (MenuItem *)malloc(sizeof(MenuItem));
+    device->back_item = (MenuItem *)malloc(sizeof(MenuItem));
 
-  waterPeriod.next = &waterAmount;
-  waterAmount.next = &backFromWater;
-  backFromWater.next = &waterPeriod;
+    if (!device->parent_item || !device->period_item || !device->time_item || !device->back_item) {
+      Serial.println("Memory allocation for menu items failed");
+    }
 
-  lightPeriod.next = &lightTime;
-  lightTime.next = &backFromLight;
-  backFromLight.next = &lightPeriod;
+    // Заполняем parent_item
+    char nameBuffer[16];
+    snprintf(nameBuffer, 16, "Device %d", i);
+    device->parent_item->name = strdup(nameBuffer);
 
-  lightPeriod.prev = &backFromLight;
-  waterPeriod.prev = &backFromWater;
+    if (!device->parent_item->name) {
+      Serial.println("Memory allocation for name failed");
+    }
+    
+    device->parent_item->parent = &mainMenu;
+    device->parent_item->next = NULL;
+    device->parent_item->prev = NULL;
+    device->parent_item->child = device->period_item;
+    device->parent_item->setting = NULL;
+
+    // Заполняем period_item
+    device->period_item->name = "Period";
+    device->period_item->parent = device->parent_item;
+    device->period_item->next = device->time_item;
+    device->period_item->prev = device->back_item;
+    device->period_item->child = NULL;
+    device->period_item->setting = &device->period;
+
+    // Заполняем time_item
+    device->time_item->name = "Time";
+    device->time_item->parent = device->parent_item;
+    device->time_item->next = device->back_item;
+    device->time_item->prev = device->period_item;
+    device->time_item->child = NULL;
+    device->time_item->setting = &device->time;
+
+    // Заполняем back_item
+    device->back_item->name = "Back";
+    device->back_item->parent = device->parent_item;
+    device->back_item->next = device->period_item;
+    device->back_item->prev = device->time_item;
+    device->back_item->child = device->parent_item;
+    device->back_item->setting = NULL;
+    
+    device->time = 20 * SECOND;
+    device->period = 18 * HOUR;
+    device->timer = 0;
+    device->state = false;
+
+    if (devices_count > 1) {
+      if (previous) {
+        previous->parent_item->next = device->parent_item;
+        device->parent_item->prev = previous->parent_item;
+      }
+      if (i == devices_count-1) {
+        previous = &devices[0];
+        previous->parent_item->prev = device->parent_item;
+        device->parent_item->next = previous->parent_item;
+      }
+    }
+  }
 }
 
 void display_menu() {
@@ -66,13 +153,15 @@ void display_menu() {
     lcd.print(" ");
     lcd.print(convert_millis(*item->setting));
   }
-  item = item->next;
+  if (item->next) {
+    item = item->next;
     
-  lcd.setCursor(2, 1);
-  lcd.print(item->name);
-  if (item->setting) {
-    lcd.print(" ");
-    lcd.print(convert_millis(*item->setting));
+    lcd.setCursor(2, 1);
+    lcd.print(item->name);
+    if (item->setting) {
+      lcd.print(" ");
+      lcd.print(convert_millis(*item->setting));
+    }
   }
 }
 
@@ -84,7 +173,6 @@ void navigate_up(MenuItem **current) {
 }
 
 void navigate_down(MenuItem **current) {
-  Serial.println("down");
   if ((*current)->next) {
     *current = (*current)->next;
     display_menu();
@@ -103,18 +191,34 @@ void select_item(MenuItem **current) {
 }
 
 void value_up() {
-  if (*(current->setting) > 3600000) {
-    *(current->setting) += 2 * HOUR;
+  if (*(current->setting) > 7200000) { // 2h
+    *(current->setting) += 1 * HOUR;
+  } else if (*(current->setting) > 3600000) { //1h
+    *(current->setting) += 10 * MINUTE;
+  } else if (*(current->setting) > 1800000) { //30m
+    *(current->setting) += 5 * MINUTE;
+  } else if (*(current->setting) > 600000) { //10m
+    *(current->setting) += 1 * MINUTE;
+  } else if (*(current->setting) > 60000) { //1m
+    *(current->setting) += 30 * SECOND;
   } else {
-    *(current->setting) += 2 * SECOND;
+    *(current->setting) += 2.5 * SECOND;
   }
 }
 
 void value_down() {
-  if (*(current->setting) > 3600000) {
-    *(current->setting) -= 2 * HOUR;
+  if (*(current->setting) > 7200000) { // 2h
+    *(current->setting) -= 1 * HOUR;
+  } else if (*(current->setting) > 3600000) { //1h
+    *(current->setting) -= 10 * MINUTE;
+  } else if (*(current->setting) > 1800000) { //30m
+    *(current->setting) -= 5 * MINUTE;
+  } else if (*(current->setting) > 600000) { //10m
+    *(current->setting) -= 1 * MINUTE;
+  } else if (*(current->setting) > 60000) { //1m
+    *(current->setting) -= 30 * SECOND;
   } else {
-    *(current->setting) -= 2 * SECOND;
+    *(current->setting) -= 2.5 * SECOND;
   }
 }
 
@@ -168,23 +272,7 @@ void pin_b() {
   }
 }
 
-void setup() {
-  Serial.begin(9600);
-  BTSerial.begin(9600);
-  setup_menu();
-  
-  pinMode(water_pin, OUTPUT);
-  pinMode(light_pin, OUTPUT);
-  digitalWrite(light_pin, 1);
-  digitalWrite(water_pin, 1);
-  
-  pinMode(MENU_KNOB_A, INPUT_PULLUP);
-  pinMode(MENU_KNOB_B, INPUT_PULLUP);
-  attachInterrupt(0, pin_a, RISING);
-  attachInterrupt(1, pin_b, RISING);
-
-  pinMode(MENU_BUTTON, INPUT_PULLUP);
-
+void LCD_setup() {
   lcd.init();
   lcd.backlight();
   lcd.clear();
@@ -195,31 +283,55 @@ void setup() {
   display_menu();
 }
 
+void setup_menu() {
+  current = devices[0].parent_item;
+  mainMenu.child = devices[0].parent_item;
+}
+
+void setup() {
+  Serial.begin(9600);
+  BTSerial.begin(9600);
+  
+  create_devices();
+  load_from_EEPROM();
+    
+  setup_menu();
+
+  for (int i = DEVICE_FIRST_PIN; i < DEVICE_FIRST_PIN + devices_count; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, 1);
+  }
+  
+  pinMode(MENU_BUTTON, INPUT_PULLUP);
+  pinMode(MENU_KNOB_A, INPUT_PULLUP);
+  pinMode(MENU_KNOB_B, INPUT_PULLUP);
+  attachInterrupt(0, pin_a, RISING);
+  attachInterrupt(1, pin_b, RISING);
+
+  LCD_setup();
+}
+
 boolean is_it_time(long ctimer, long period) {
   return main_timer - ctimer > period;
 }
 
-void turn_light() {
-  if (light_state)
-    digitalWrite(light_pin, 1);
+void turn_device(Device *device, int pin) {
+  if (device->state) 
+    digitalWrite(pin, 1);
   else
-    digitalWrite(light_pin, 0);
-  light_timer = main_timer;
-  light_state = !light_state;
-}
-
-void turn_water() {
-  if (water_state)
-    digitalWrite(water_pin, 1);
-  else
-    digitalWrite(water_pin, 0);
-  water_timer = main_timer;
-  water_state = !water_state;
+    digitalWrite(pin, 0);
+  device->timer = main_timer;
+  device->state = !device->state;
 }
 
 void loop() {
-  main_timer++;
+  main_timer = millis();
   bool btn_state = !digitalRead(MENU_BUTTON);
+
+  if (main_timer - last_save_time >= 1 * HOUR) {
+    save_to_EEPROM();
+    last_save_time = main_timer;
+  }
 
   if (btn_state && !button_pressed) {
     button_pressed = true;
@@ -228,51 +340,16 @@ void loop() {
     button_pressed = false;
     select_item(&current);
   }
-      
-  if (!light_state) {
-    if (is_it_time(light_timer, light_period)) {
-      turn_light();
-    }
-  } else {
-    if (is_it_time(light_timer, light_time)) {
-      turn_light();
+
+  for (int p = DEVICE_FIRST_PIN, d = 0;
+       p < DEVICE_FIRST_PIN + devices_count, d < devices_count;
+       p++, d++) {
+    if (!devices[d].state) {
+      if (is_it_time(devices[d].timer, devices[d].period))
+        turn_device(&devices[d], p);
+    } else {
+      if (is_it_time(devices[d].timer, devices[d].time))
+        turn_device(&devices[d], p);
     }
   }
-  
-  if (!water_state) {
-    if (is_it_time(water_timer, water_period)) {
-      turn_water();
-    }
-  } else {
-    if (is_it_time(water_timer, water_time)) {
-      turn_water();
-    }
-  }
-
-  /* while (BTSerial.available()) { */
-  /*   bluetooth_read(); */
-  /* } */
-}
-
-void bluetooth_read() {
-  Serial.write(BTSerial.read());
-    char c = 0;
-    int v = 0;
-    char input[INPUT_SIZE + 1];
-    byte size = BTSerial.readBytes(input, INPUT_SIZE);
-    input[size] = 0;
-    
-    char* pch = strtok(input, " ");
-    c = pch[0];
-    pch = strtok(NULL, " ");
-    v = atol(pch);
-
-    switch (c) {
-    case 'w':
-      water_period = v * 100000;
-      break;
-    case 'l':
-      light_period = v * 100000;
-      break;
-    }
 }

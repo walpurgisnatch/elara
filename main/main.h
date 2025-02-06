@@ -3,12 +3,10 @@
 #include <SoftwareSerial.h>
 #include <LiquidCrystal_I2C.h>
 
+#define EEPROM_MAGIC_NUMBER 0xABCD
 #define DEBOUNCE 5
 
-#define water_pin 5
-#define light_pin 6
-#define INPUT_SIZE 10
-
+#define DEVICE_FIRST_PIN 5
 #define MENU_KNOB_A 3
 #define MENU_KNOB_B 2
 #define MENU_BUTTON 4
@@ -17,6 +15,11 @@
 #define MINUTE 60000
 #define HOUR 3600000
 #define DAY 86400000
+
+typedef enum {
+    WATER,
+    LIGHT
+} DeviceType;
 
 typedef struct MenuItem {
     const char *name;
@@ -27,28 +30,31 @@ typedef struct MenuItem {
     long *setting;
 } MenuItem;
 
+typedef struct Device {
+    struct MenuItem *parent_item;
+    struct MenuItem *period_item;
+    struct MenuItem *time_item;
+    struct MenuItem *back_item;
+    unsigned long timer;
+    long time;
+    long period;
+    bool state;
+} Device;
+
 volatile byte a_flag = 0;
 volatile byte b_flag = 0;
+bool button_pressed = false;
+bool setting_selected = false;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 SoftwareSerial BTSerial(10, 11);
 
-long water_time = 20 * SECOND;
-long light_time = 6 * HOUR;
-long water_period = 18 * HOUR;
-long light_period = 18 * HOUR;
+Device *devices = NULL;
 
 MenuItem mainMenu = {"Main manu", NULL, NULL, NULL, NULL, NULL};
-MenuItem waterItem = {"Water", &mainMenu, NULL, NULL, NULL, NULL};
-MenuItem lightItem = {"Light", &mainMenu, NULL, &waterItem, NULL, NULL};
+MenuItem *current = NULL;
 
-MenuItem waterPeriod = {"Period", &waterItem, NULL, NULL, NULL, &water_period};
-MenuItem waterAmount = {"Time", &waterItem, NULL, &waterPeriod, NULL, &water_time};
-MenuItem backFromWater = {"Back", &lightItem, NULL, &waterAmount, &waterItem, NULL};
-
-MenuItem lightPeriod = {"Period", &lightItem, NULL, NULL, NULL, &light_period};
-MenuItem lightTime = {"Time", &lightItem, NULL, &lightPeriod, NULL, &light_time};
-MenuItem backFromLight = {"Back", &lightItem, NULL, &lightTime, &lightItem, NULL};
+unsigned long main_timer, last_interrupt_time, last_save_time = 0;
 
 void display_menu();
 void navigate_up(MenuItem **current);
