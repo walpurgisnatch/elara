@@ -2,6 +2,42 @@
 
 int devices_count = 3;
 
+void save_to_EEPROM() {
+  int addr = 0;
+
+  int magic = EEPROM_MAGIC_NUMBER;
+  EEPROM.put(addr, magic);
+  addr += sizeof(magic);
+  
+  EEPROM.put(addr, main_timer);
+  addr += sizeof(main_timer);
+
+  for (int i = 0; i < devices_count; i++) {
+    EEPROM.put(addr, devices[i]);
+    addr += sizeof(Device);
+  }
+}
+
+void load_from_EEPROM() {
+  int addr = 0;
+  int magic;
+
+  EEPROM.get(addr, magic);
+  if (magic != EEPROM_MAGIC_NUMBER)
+    return;
+  addr += sizeof(magic);
+  
+  EEPROM.get(addr, main_timer);
+  addr += sizeof(main_timer);
+  
+  memset(devices, 0, sizeof(Device) * devices_count);
+  
+  for (int i = 0; i < devices_count; i++) {
+    EEPROM.get(addr, devices[i]);
+    addr += sizeof(Device);
+  }
+}
+
 String convert_millis(long millis) {
   long days = millis / (DAY);
   millis %= (DAY);
@@ -24,7 +60,7 @@ String convert_millis(long millis) {
   return result;
 }
 
-void create_menu() {
+void create_devices() {
   devices = (Device *)malloc(devices_count * sizeof(Device));
   
   if (!devices) {
@@ -103,12 +139,6 @@ void create_menu() {
       }
     }
   }
-}
-
-void setup_menu() {
-  create_menu();
-  current = devices[0].parent_item;
-  mainMenu.child = devices[0].parent_item;
 }
 
 void display_menu() {
@@ -253,9 +283,18 @@ void LCD_setup() {
   display_menu();
 }
 
+void setup_menu() {
+  current = devices[0].parent_item;
+  mainMenu.child = devices[0].parent_item;
+}
+
 void setup() {
   Serial.begin(9600);
   BTSerial.begin(9600);
+  
+  create_devices();
+  load_from_EEPROM();
+    
   setup_menu();
 
   for (int i = DEVICE_FIRST_PIN; i < DEVICE_FIRST_PIN + devices_count; i++) {
@@ -288,6 +327,11 @@ void turn_device(Device *device, int pin) {
 void loop() {
   main_timer = millis();
   bool btn_state = !digitalRead(MENU_BUTTON);
+
+  if (main_timer - last_save_time >= 1 * HOUR) {
+    save_to_EEPROM();
+    last_save_time = main_timer;
+  }
 
   if (btn_state && !button_pressed) {
     button_pressed = true;

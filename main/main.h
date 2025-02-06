@@ -3,11 +3,10 @@
 #include <SoftwareSerial.h>
 #include <LiquidCrystal_I2C.h>
 
+#define EEPROM_MAGIC_NUMBER 0xABCD
 #define DEBOUNCE 5
 
 #define DEVICE_FIRST_PIN 5
-#define INPUT_SIZE 10
-
 #define MENU_KNOB_A 3
 #define MENU_KNOB_B 2
 #define MENU_BUTTON 4
@@ -55,7 +54,7 @@ Device *devices = NULL;
 MenuItem mainMenu = {"Main manu", NULL, NULL, NULL, NULL, NULL};
 MenuItem *current = NULL;
 
-unsigned long main_timer, last_interrupt_time = 0;
+unsigned long main_timer, last_interrupt_time, last_save_time = 0;
 
 void display_menu();
 void navigate_up(MenuItem **current);
