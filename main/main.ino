@@ -1,6 +1,6 @@
 #include "main.h"
 
-int devices_count = 3;
+int devices_count = 2;
 
 void save_to_EEPROM() {
   int addr = 0;
@@ -50,7 +50,6 @@ String convert_millis(long millis) {
 
   long seconds = millis / SECOND;
 
-  // Формируем строку с результатом
   String result = "";
   if (days > 0) result += String(days) + "d";
   if (hours > 0) result += String(hours) + "h";
@@ -77,13 +76,13 @@ void create_devices() {
     device->parent_item = (MenuItem *)malloc(sizeof(MenuItem));
     device->period_item = (MenuItem *)malloc(sizeof(MenuItem));
     device->time_item = (MenuItem *)malloc(sizeof(MenuItem));
+    device->func_item = (MenuItem *)malloc(sizeof(MenuItem));
     device->back_item = (MenuItem *)malloc(sizeof(MenuItem));
 
     if (!device->parent_item || !device->period_item || !device->time_item || !device->back_item) {
       Serial.println("Memory allocation for menu items failed");
     }
-
-    // Заполняем parent_item
+    
     char nameBuffer[16];
     snprintf(nameBuffer, 16, "Device %d", i);
     device->parent_item->name = strdup(nameBuffer);
@@ -96,7 +95,9 @@ void create_devices() {
     device->parent_item->next = NULL;
     device->parent_item->prev = NULL;
     device->parent_item->child = device->period_item;
+    device->parent_item->func = NULL;
     device->parent_item->setting = NULL;
+    device->parent_item->device = device;
 
     // Заполняем period_item
     device->period_item->name = "Period";
@@ -104,28 +105,45 @@ void create_devices() {
     device->period_item->next = device->time_item;
     device->period_item->prev = device->back_item;
     device->period_item->child = NULL;
+    device->period_item->func = NULL;
     device->period_item->setting = &device->period;
+    device->period_item->device = device;
 
     // Заполняем time_item
     device->time_item->name = "Time";
     device->time_item->parent = device->parent_item;
-    device->time_item->next = device->back_item;
+    device->time_item->next = device->func_item;
     device->time_item->prev = device->period_item;
     device->time_item->child = NULL;
+    device->time_item->func = NULL;
     device->time_item->setting = &device->time;
+    device->time_item->device = device;
+
+    // Заполняем func_item
+    device->func_item->name = "Try it";
+    device->func_item->parent = device->parent_item;
+    device->func_item->next = device->back_item;
+    device->func_item->prev = device->time_item;
+    device->func_item->child = NULL;
+    device->func_item->func = turn_device;
+    device->func_item->setting = NULL;
+    device->func_item->device = device;
 
     // Заполняем back_item
     device->back_item->name = "Back";
     device->back_item->parent = device->parent_item;
     device->back_item->next = device->period_item;
-    device->back_item->prev = device->time_item;
+    device->back_item->prev = device->func_item;
     device->back_item->child = device->parent_item;
+    device->back_item->func = NULL;
     device->back_item->setting = NULL;
+    device->back_item->device = device;
     
     device->time = 20 * SECOND;
     device->period = 18 * HOUR;
     device->timer = 0;
     device->state = false;
+    device->pin = DEVICE_FIRST_PIN + i;
 
     if (devices_count > 1) {
       if (previous) {
@@ -187,6 +205,8 @@ void select_item(MenuItem **current) {
     setting_selected = true;
   } else if ((*current)->setting && setting_selected) {
     setting_selected = false;
+  } else if ((*current)->func) {
+    (*current)->func((*current)->device);
   }
 }
 
@@ -315,11 +335,11 @@ boolean is_it_time(long ctimer, long period) {
   return main_timer - ctimer > period;
 }
 
-void turn_device(Device *device, int pin) {
+void turn_device(Device *device) {
   if (device->state) 
-    digitalWrite(pin, 1);
+    digitalWrite(device->pin, 1);
   else
-    digitalWrite(pin, 0);
+    digitalWrite(device->pin, 0);
   device->timer = main_timer;
   device->state = !device->state;
 }
@@ -341,15 +361,13 @@ void loop() {
     select_item(&current);
   }
 
-  for (int p = DEVICE_FIRST_PIN, d = 0;
-       p < DEVICE_FIRST_PIN + devices_count, d < devices_count;
-       p++, d++) {
+  for (int d = 0; d < devices_count; d++) {
     if (!devices[d].state) {
       if (is_it_time(devices[d].timer, devices[d].period))
-        turn_device(&devices[d], p);
+        turn_device(&devices[d]);
     } else {
       if (is_it_time(devices[d].timer, devices[d].time))
-        turn_device(&devices[d], p);
+        turn_device(&devices[d]);
     }
   }
 }

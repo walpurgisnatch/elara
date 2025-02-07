@@ -3,7 +3,7 @@
 #include <SoftwareSerial.h>
 #include <LiquidCrystal_I2C.h>
 
-#define EEPROM_MAGIC_NUMBER 0xABCD
+#define EEPROM_MAGIC_NUMBER 0xABCC
 #define DEBOUNCE 5
 
 #define DEVICE_FIRST_PIN 5
@@ -21,20 +21,27 @@ typedef enum {
     LIGHT
 } DeviceType;
 
+typedef struct Device Device;
+typedef void (*FunctionPointer)(Device*);
+
 typedef struct MenuItem {
     const char *name;
     struct MenuItem *parent;
     struct MenuItem *next;
     struct MenuItem *prev;
     struct MenuItem *child;
+    FunctionPointer func;
     long *setting;
+    Device *device;
 } MenuItem;
 
 typedef struct Device {
     struct MenuItem *parent_item;
     struct MenuItem *period_item;
     struct MenuItem *time_item;
+    struct MenuItem *func_item;
     struct MenuItem *back_item;
+    int pin;
     unsigned long timer;
     long time;
     long period;
@@ -51,7 +58,7 @@ SoftwareSerial BTSerial(10, 11);
 
 Device *devices = NULL;
 
-MenuItem mainMenu = {"Main manu", NULL, NULL, NULL, NULL, NULL};
+MenuItem mainMenu = {"Main manu", NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 MenuItem *current = NULL;
 
 unsigned long main_timer, last_interrupt_time, last_save_time = 0;
