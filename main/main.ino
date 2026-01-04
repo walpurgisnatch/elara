@@ -92,11 +92,32 @@ void write_data(const char* value) {
       
     char response[64];
     snprintf(response, sizeof(response), "Устройство %d: period=%ldms, time=%ldms\n", d, period_ms, time_ms);
-    pCharacteristic->setValue(response);
+
+    String json_data = create_devices_JSON();
+    pCharacteristic->setValue(json_data.c_str());
     Serial.println(response);
   } else {
     Serial.println("Неверный номер устройства!");
   }
+}
+
+String create_devices_JSON() {
+    String json = "[";
+    
+    for (int i = 0; i < devices_count; i++) {
+        json += "{";
+        json += "\"name\":" + String(devices[i].name) + ",";
+        json += "\"period\":\"" + String(devices[i].period) + "\",";
+        json += "\"time\":\"" + String(devices[i].time) + "\"";
+        json += "}";
+        
+        if (i < devices_count - 1) {
+            json += ",";
+        }
+    }
+    
+    json += "]";
+    return json;
 }
 
 class BLECallbacks : public BLECharacteristicCallbacks {
@@ -112,6 +133,8 @@ class BLECallbacks : public BLECharacteristicCallbacks {
 };
 
 void setupBLE() {
+  String json_data = create_devices_JSON();
+
   BLEDevice::init("Elara");
   BLEServer *pServer = BLEDevice::createServer();
   BLEService *pService = pServer->createService(SERVICE_UUID);
@@ -120,7 +143,7 @@ void setupBLE() {
     pService->createCharacteristic(CHARACTERISTIC_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE);
 
   pCharacteristic->setCallbacks(new BLECallbacks());
-  pCharacteristic->setValue("You");
+  pCharacteristic->setValue(json_data.c_str());
   pService->start();
 
   BLEAdvertising *pAdvertising = pServer->getAdvertising();
@@ -135,13 +158,13 @@ void setupBLE() {
 void setup() {
   Serial.begin(115200);
 
-  setupBLE();
   create_devices();
+  setupBLE();
   
-  for (int i = DEVICE_FIRST_PIN; i < DEVICE_FIRST_PIN + devices_count; i++) {
-    pinMode(i, OUTPUT);
-    digitalWrite(i, 1);
-  }
+  // for (int i = DEVICE_FIRST_PIN; i < DEVICE_FIRST_PIN + devices_count; i++) {
+  //   pinMode(i, OUTPUT);
+  //   digitalWrite(i, 1);
+  // }
 }
 
 boolean is_it_time(long ctimer, long period) {
@@ -163,17 +186,17 @@ void loop() {
   main_timer = millis();
 
   if (main_timer - last_save_time >= 1 * HOUR) {
-    save_to_EEPROM();
+    // save_to_EEPROM();
     last_save_time = main_timer;
   }
 
-  for (int d = 0; d < devices_count; d++) {
-    if (!devices[d].state) {
-      if (is_it_time(devices[d].timer, devices[d].period))
-        turn_device(&devices[d]);
-    } else {
-      if (is_it_time(devices[d].timer, devices[d].time))
-        turn_device(&devices[d]);
-    }
-  }
+  // for (int d = 0; d < devices_count; d++) {
+  //   if (!devices[d].state) {
+  //     if (is_it_time(devices[d].timer, devices[d].period))
+  //       turn_device(&devices[d]);
+  //   } else {
+  //     if (is_it_time(devices[d].timer, devices[d].time))
+  //       turn_device(&devices[d]);
+  //   }
+  // }
 }
