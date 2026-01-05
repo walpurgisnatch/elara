@@ -3,9 +3,9 @@
 int devices_count = 2;
 BLECharacteristic *pCharacteristic;
 
-void save_to_EEPROM() { }
+void save_to_EEPROM() {}
 
-void load_from_EEPROM() { }
+void load_from_EEPROM() {}
 
 String convert_millis(long millis) {
   long days = millis / DAY;
@@ -37,11 +37,11 @@ long convert_to_millis(const char *time_str) {
       current_value = current_value * 10 + (*time_str - '0');
     } else {
       switch (*time_str) {
-      case 'd': total_ms += current_value * DAY; break;
-      case 'h': total_ms += current_value * HOUR; break;
-      case 'm': total_ms += current_value * MINUTE; break;
-      case 's': total_ms += current_value * SECOND; break;
-      default: break;
+        case 'd': total_ms += current_value * DAY; break;
+        case 'h': total_ms += current_value * HOUR; break;
+        case 'm': total_ms += current_value * MINUTE; break;
+        case 's': total_ms += current_value * SECOND; break;
+        default: break;
       }
       current_value = 0;
     }
@@ -51,15 +51,15 @@ long convert_to_millis(const char *time_str) {
 
 void create_devices() {
   devices = (Device *)malloc(devices_count * sizeof(Device));
-  
+
   if (!devices) {
     Serial.println("Memory allocation for devices failed");
   }
-  
+
   for (int i = 0; i < devices_count; i++) {
     Device *device = &devices[i];
     Device *previous = NULL;
-    
+
     char name_buffer[16];
     snprintf(name_buffer, 16, "Device %d", i);
 
@@ -72,7 +72,7 @@ void create_devices() {
   }
 }
 
-void write_data(const char* value) {
+void write_data(const char *value) {
   int d;
   long period_ms, time_ms;
 
@@ -89,7 +89,7 @@ void write_data(const char* value) {
   if (d >= 0 && d < 10) {
     devices[d].period = period_ms;
     devices[d].time = time_ms;
-      
+
     char response[64];
     snprintf(response, sizeof(response), "Устройство %d: period=%ldms, time=%ldms\n", d, period_ms, time_ms);
 
@@ -102,22 +102,22 @@ void write_data(const char* value) {
 }
 
 String create_devices_JSON() {
-    String json = "[";
-    
-    for (int i = 0; i < devices_count; i++) {
-        json += "{";
-        json += "\"name\":" + String(devices[i].name) + ",";
-        json += "\"period\":\"" + String(devices[i].period) + "\",";
-        json += "\"time\":\"" + String(devices[i].time) + "\"";
-        json += "}";
-        
-        if (i < devices_count - 1) {
-            json += ",";
-        }
+  String json = "[";
+
+  for (int i = 0; i < devices_count; i++) {
+    json += "{";
+    json += "\"name\":" + String(devices[i].name) + ",";
+    json += "\"period\":\"" + String(devices[i].period) + "\",";
+    json += "\"time\":\"" + String(devices[i].time) + "\"";
+    json += "}";
+
+    if (i < devices_count - 1) {
+      json += ",";
     }
-    
-    json += "]";
-    return json;
+  }
+
+  json += "]";
+  return json;
 }
 
 class BLECallbacks : public BLECharacteristicCallbacks {
@@ -160,24 +160,24 @@ void setup() {
 
   create_devices();
   setupBLE();
-  
-  // for (int i = DEVICE_FIRST_PIN; i < DEVICE_FIRST_PIN + devices_count; i++) {
-  //   pinMode(i, OUTPUT);
-  //   digitalWrite(i, 1);
-  // }
+
+  for (int i = DEVICE_FIRST_PIN; i < DEVICE_FIRST_PIN + devices_count; i++) {
+    pinMode(i, OUTPUT);
+    // digitalWrite(i, 1);
+  }
 }
 
 boolean is_it_time(long ctimer, long period) {
   return main_timer - ctimer > period;
 }
 
-void turn_device(Device *device) {  
+void turn_device(Device *device) {
   if (device->state) {
     digitalWrite(device->pin, 1);
-    device->state = false;
+    device->state = true;
   } else {
     digitalWrite(device->pin, 0);
-    device->state = true;
+    device->state = false;
   }
   device->timer = main_timer;
 }
@@ -190,13 +190,13 @@ void loop() {
     last_save_time = main_timer;
   }
 
-  // for (int d = 0; d < devices_count; d++) {
-  //   if (!devices[d].state) {
-  //     if (is_it_time(devices[d].timer, devices[d].period))
-  //       turn_device(&devices[d]);
-  //   } else {
-  //     if (is_it_time(devices[d].timer, devices[d].time))
-  //       turn_device(&devices[d]);
-  //   }
-  // }
+  for (int d = 0; d < devices_count; d++) {
+    if (!devices[d].state) {
+      if (is_it_time(devices[d].timer, devices[d].period))
+        turn_device(&devices[d]);
+    } else {
+      if (is_it_time(devices[d].timer, devices[d].time))
+        turn_device(&devices[d]);
+    }
+  }
 }

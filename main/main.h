@@ -17,7 +17,7 @@
 #define HOUR 3600000
 #define DAY 86400000
 
-#define DEVICE_FIRST_PIN 5
+#define DEVICE_FIRST_PIN 16
 #define MENU_KNOB_A 34   // input-only, ок для энкодера
 #define MENU_KNOB_B 35   // input-only
 #define MENU_BUTTON 25   // любой GPIO с PullUp
